@@ -2,7 +2,7 @@
 
 A small browser slot game built as a learning project. It uses **virtual credits only**: no real money, no payments.
 
-**Live demo:** _add your link here after publishing (for example `https://YOUR-USERNAME.github.io/slot-demo/`)_
+**Live demo:** https://artm-x.github.io/slot-demo/
 
 ## Features
 
