@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Slot</title>
+  <style>
+    body {
+      margin: 0; min-height: 100vh; padding: 16px; box-sizing: border-box;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(circle at top, #3a1c71, #15092b);
+      color: #fff; font-family: Arial, sans-serif; overflow-x: hidden;
+    }
+    h1 { color: #ffd54a; text-shadow: 0 0 12px #ff9800; }
+    .lang { width: 100%; max-width: 440px; text-align: right; margin-bottom: 8px; }
+    .lang select {
+      font-size: 14px; padding: 6px 10px; border-radius: 8px;
+      background: #22103f; color: #fff; border: 2px solid #ffd54a; cursor: pointer;
+    }
+    .machine {
+      width: 100%; max-width: 440px; box-sizing: border-box;
+      background: #22103f; border: 4px solid #ffd54a; border-radius: 20px;
+      padding: 24px; text-align: center; box-shadow: 0 0 30px rgba(255, 213, 74, 0.4);
+    }
+    .machine.bonus { border-color: #ff5252; box-shadow: 0 0 40px rgba(255, 82, 82, 0.7); }
+    .reels { display: flex; gap: 12px; justify-content: center; margin-bottom: 16px; }
+    .reel {
+      width: 90px; height: 90px; background: #fff; border-radius: 12px; font-size: 56px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.4);
+    }
+    .reel.spinning { animation: shake 0.15s infinite; }
+    @keyframes shake {
+      0% { transform: translateY(-3px); }
+      50% { transform: translateY(3px); }
+      100% { transform: translateY(-3px); }
+    }
+
+    /* Win highlight: winning reels pulse gold, bonus 🎁 pulse red */
+    .reel.win {
+      background: #fff6c8; box-shadow: 0 0 22px 6px #ffd54a;
+      animation: winPulse 0.45s ease-in-out 5;
+    }
+    .reel.scatter-hit {
+      background: #ffe0e0; box-shadow: 0 0 22px 6px #ff5252;
+      animation: winPulse 0.45s ease-in-out 5;
+    }
+    @keyframes winPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    #message { min-height: 28px; font-size: 20px; color: #ffd54a; }
+    #message.pulse { animation: messagePop 0.5s ease-out; }
+    @keyframes messagePop {
+      0% { transform: scale(0.6); opacity: 0; }
+      60% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+
+    #balance { display: inline-block; }
+    #balance.pop { animation: balancePop 0.5s ease-out; }
+    @keyframes balancePop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.5); color: #ffd54a; }
+      100% { transform: scale(1); }
+    }
+
+    .free-info { display: none; margin: 8px 0; padding: 8px; border-radius: 10px; background: #5a1f2e; color: #ffb3b3; font-size: 16px; }
+    .machine.bonus .free-info { display: block; }
+    .info { margin: 10px 0; font-size: 18px; }
+    button {
+      font-size: 18px; padding: 10px 18px; border: none; border-radius: 10px;
+      cursor: pointer; background: #ffd54a; color: #2b1055; font-weight: bold; margin: 4px;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #spinBtn { font-size: 24px; padding: 14px 40px; background: #ff5252; color: #fff; }
+    .machine.bonus #spinBtn { font-size: 18px; padding: 14px 24px; }
+    .small { background: #5b3a9e; color: #fff; font-size: 14px; }
+    .paytable {
+      white-space: pre-line; margin: 14px 0 6px; padding: 10px; border-radius: 10px;
+      background: #1a0b33; font-size: 14px; line-height: 1.6; color: #d9c8ff;
+    }
+
+    /* Confetti for big wins */
+    #confetti { position: fixed; top: 0; left: 0; width: 100%; height: 0; pointer-events: none; z-index: 10; }
+    .confetti-piece { position: fixed; top: -50px; animation: fall 2.2s linear forwards; }
+    @keyframes fall {
+      to { transform: translateY(115vh) rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .confetti-piece { display: none; }
+      .reel.win, .reel.scatter-hit, #message.pulse, #balance.pop { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="confetti"></div>
+
+  <div class="lang">
+    <select id="langSelect" onchange="setLanguage(this.value)" aria-label="Language">
+      <option value="en">English</option>
+      <option value="pl">Polski</option>
+      <option value="uk">Українська</option>
+      <option value="de">Deutsch</option>
+    </select>
+  </div>
+
+  <h1>🎰 <span data-i18n="title">Live Slot</span></h1>
+  <div class="machine" id="machine">
+    <div class="reels">
+      <div class="reel">❓</div>
+      <div class="reel">❓</div>
+      <div class="reel">❓</div>
+    </div>
+    <div id="message"></div>
+    <div id="freeInfo" class="free-info"></div>
+    <div class="info"><span data-i18n="balance">Balance</span>: <b id="balance">1000</b></div>
+    <div class="info">
+      <button onclick="changeBet(-1)">−</button>
+      <span data-i18n="bet">Bet</span>: <b id="bet">10</b>
+      <button onclick="changeBet(1)">+</button>
+    </div>
+    <button id="spinBtn" onclick="spin()">SPIN</button>
+    <div class="info"><span data-i18n="spinsLabel">Spins</span>: <span id="spins">0</span> | <span data-i18n="winsLabel">Wins</span>: <span id="wins">0</span></div>
+    <div id="paytable" class="paytable"></div>
+    <button class="small" data-i18n="simulate" onclick="simulate()">Simulate 100,000 spins</button>
+    <button class="small" data-i18n="reset" onclick="resetAll()">Reset all</button>
+    <button class="small" id="soundBtn" onclick="toggleSound()">🔊 Sound: on</button>
+    <div id="simResult" class="info"></div>
+  </div>
+
+  <script>
+    // ===== Translations =====
+    // All text the player sees lives here, NOT inside the game logic.
+    // To add a new language, copy one block, translate the values, and add an <option> in the HTML.
+    // Words in {curly braces} are placeholders: the game fills them in (numbers, symbols).
+    const translations = {
+      en: {
+        title: "Live Slot",
+        balance: "Balance",
+        bet: "Bet",
+        spinsLabel: "Spins",
+        winsLabel: "Wins",
+        spin: "SPIN",
+        freeSpin: "FREE SPIN",
+        simulate: "Simulate 100,000 spins",
+        reset: "Reset all",
+        soundOn: "🔊 Sound: on",
+        soundOff: "🔇 Sound: off",
+        freeInfo: "🎁 Free spins: {n} | Bonus win: {win}",
+        paytableTitle: "PAYTABLE",
+        paytablePair: "Two matching (first two reels) = bet back",
+        paytableBonus: "{symbols} = {n} free spins, wins ×{m}",
+        paytableRtp: "Theoretical RTP: {rtp}%",
+        msgNoMoney: "Not enough balance. Lower the bet or press “Reset all”.",
+        msgTryAgain: "Try again",
+        msgBonusStart: "🎁 BONUS! {n} free spins, all wins ×{m}!",
+        msgBonusEnd: "🏁 Bonus over! Total bonus win: {win}",
+        msgFreeWin: "🎉 Free spin: +{prize}",
+        msgFreeNoWin: "Free spin: no win",
+        msgPair: "Close! Bet returned: +{prize}",
+        msgWin: "🎉 Win! +{prize}",
+        msgReset: "Everything has been reset",
+        simResult: "Simulation: RTP {rtp}% (from bonus: {bonusRtp}%) | Hit rate: {hit}% | Bonus: {bonus} | Theory: {theory}%",
+        simBonusEvery: "once per {n} spins",
+        simBonusNone: "did not trigger"
+      },
+      pl: {
+        title: "Żywy slot",
+        balance: "Saldo",
+        bet: "Stawka",
+        spinsLabel: "Spiny",
+        winsLabel: "Wygrane",
+        spin: "KRĘĆ",
+        freeSpin: "DARMOWY SPIN",
+        simulate: "Symulacja 100 000 spinów",
+        reset: "Zresetuj wszystko",
+        soundOn: "🔊 Dźwięk: wł.",
+        soundOff: "🔇 Dźwięk: wył.",
+        freeInfo: "🎁 Darmowe spiny: {n} | Wygrana w bonusie: {win}",
+        paytableTitle: "TABELA WYPŁAT",
+        paytablePair: "Dwa takie same (pierwsze dwa bębny) = zwrot stawki",
+        paytableBonus: "{symbols} = {n} darmowych spinów, wygrane ×{m}",
+        paytableRtp: "Teoretyczny RTP: {rtp}%",
+        msgNoMoney: "Za mało środków. Zmniejsz stawkę lub kliknij „Zresetuj wszystko”.",
+        msgTryAgain: "Spróbuj ponownie",
+        msgBonusStart: "🎁 BONUS! {n} darmowych spinów, wszystkie wygrane ×{m}!",
+        msgBonusEnd: "🏁 Koniec bonusu! Wygrana w bonusie: {win}",
+        msgFreeWin: "🎉 Darmowy spin: +{prize}",
+        msgFreeNoWin: "Darmowy spin: brak wygranej",
+        msgPair: "Prawie! Zwrot stawki: +{prize}",
+        msgWin: "🎉 Wygrana! +{prize}",
+        msgReset: "Wszystko zostało zresetowane",
+        simResult: "Symulacja: RTP {rtp}% (z bonusu: {bonusRtp}%) | Częstość wygranych: {hit}% | Bonus: {bonus} | Teoria: {theory}%",
+        simBonusEvery: "raz na {n} spinów",
+        simBonusNone: "nie wypadł"
+      },
+      uk: {
+        title: "Живий слот",
+        balance: "Баланс",
+        bet: "Ставка",
+        spinsLabel: "Спроб",
+        winsLabel: "Виграшів",
+        spin: "КРУТИТИ",
+        freeSpin: "БЕЗКОШТОВНИЙ ОБЕРТ",
+        simulate: "Симуляція 100 000",
+        reset: "Скинути все",
+        soundOn: "🔊 Звук: увімк.",
+        soundOff: "🔇 Звук: вимк.",
+        freeInfo: "🎁 Безкоштовних обертів: {n} | Виграно в бонусі: {win}",
+        paytableTitle: "ТАБЛИЦЯ ВИПЛАТ",
+        paytablePair: "Дві однакові (перші два) = ставка назад",
+        paytableBonus: "{symbols} = {n} безкоштовних обертів, виграші ×{m}",
+        paytableRtp: "Теоретичний RTP: {rtp}%",
+        msgNoMoney: "Замало грошей. Зменш ставку або натисни «Скинути все».",
+        msgTryAgain: "Спробуй ще",
+        msgBonusStart: "🎁 БОНУС! {n} безкоштовних обертів, виграші ×{m}!",
+        msgBonusEnd: "🏁 Бонус завершено! Виграно в бонусі: {win}",
+        msgFreeWin: "🎉 Безкоштовний оберт: +{prize}",
+        msgFreeNoWin: "Безкоштовний оберт: без виграшу",
+        msgPair: "Майже! Ставка повернулася: +{prize}",
+        msgWin: "🎉 Виграш! +{prize}",
+        msgReset: "Усе скинуто",
+        simResult: "Симуляція: RTP {rtp}% (з бонусу: {bonusRtp}%) | Частота виграшів: {hit}% | Бонус: {bonus} | Теорія: {theory}%",
+        simBonusEvery: "раз на {n} спінів",
+        simBonusNone: "не випав"
+      },
+      de: {
+        title: "Live-Slot",
+        balance: "Guthaben",
+        bet: "Einsatz",
+        spinsLabel: "Spins",
+        winsLabel: "Gewinne",
+        spin: "DREHEN",
+        freeSpin: "FREISPIEL",
+        simulate: "100.000 Spins simulieren",
+        reset: "Alles zurücksetzen",
+        soundOn: "🔊 Ton: an",
+        soundOff: "🔇 Ton: aus",
+        freeInfo: "🎁 Freispiele: {n} | Bonusgewinn: {win}",
+        paytableTitle: "GEWINNTABELLE",
+        paytablePair: "Zwei gleiche (erste zwei Walzen) = Einsatz zurück",
+        paytableBonus: "{symbols} = {n} Freispiele, Gewinne ×{m}",
+        paytableRtp: "Theoretischer RTP: {rtp}%",
+        msgNoMoney: "Nicht genug Guthaben. Senke den Einsatz oder klicke auf „Alles zurücksetzen“.",
+        msgTryAgain: "Versuch es nochmal",
+        msgBonusStart: "🎁 BONUS! {n} Freispiele, alle Gewinne ×{m}!",
+        msgBonusEnd: "🏁 Bonus beendet! Bonusgewinn gesamt: {win}",
+        msgFreeWin: "🎉 Freispiel: +{prize}",
+        msgFreeNoWin: "Freispiel: kein Gewinn",
+        msgPair: "Fast! Einsatz zurück: +{prize}",
+        msgWin: "🎉 Gewinn! +{prize}",
+        msgReset: "Alles wurde zurückgesetzt",
+        simResult: "Simulation: RTP {rtp}% (aus Bonus: {bonusRtp}%) | Trefferquote: {hit}% | Bonus: {bonus} | Theorie: {theory}%",
+        simBonusEvery: "einmal pro {n} Spins",
+        simBonusNone: "nicht ausgelöst"
+      }
+    };
+
+    // t("key") returns the text in the current language. If a translation is missing, we fall back to English.
+    function t(key, params) {
+      const dict = translations[lang] || translations.en;
+      let text = dict[key] !== undefined ? dict[key] : translations.en[key];
+      if (text === undefined) return key;
+      if (params) {
+        Object.keys(params).forEach(function (name) {
+          text = text.split("{" + name + "}").join(params[name]);
+        });
+      }
+      return text;
+    }
+
+    // Which language to start with: the saved choice, else the browser's language, else English.
+    function detectLanguage() {
+      try {
+        const saved = localStorage.getItem("lang");
+        if (saved && translations[saved]) return saved;
+      } catch (e) {
+        // ignore
+      }
+      try {
+        const browserLang = (navigator.language || "en").slice(0, 2).toLowerCase();
+        if (translations[browserLang]) return browserLang;
+      } catch (e) {
+        // ignore
+      }
+      return "en";
+    }
+
+    let lang = detectLanguage();
+
+    function setLanguage(newLang) {
+      if (!translations[newLang]) return;
+      lang = newLang;
+      try {
+        localStorage.setItem("lang", lang);
+      } catch (e) {
+        // ignore
+      }
+      applyLanguage();
+    }
+
+    // Writes the current language into every place on the page.
+    function applyLanguage() {
+      document.documentElement.lang = lang;
+      document.title = t("title");
+      document.querySelectorAll("[data-i18n]").forEach(function (el) {
+        el.textContent = t(el.getAttribute("data-i18n"));
+      });
+      document.getElementById("langSelect").value = lang;
+      renderPaytable();
+      updateSoundButton();
+      showStats();
+      document.getElementById("message").textContent = "";
+      document.getElementById("simResult").textContent = "";
+    }
+
+    // ===== Game settings (the math lives here) =====
+    const payouts = {
+      "🍒": 13,
+      "🍋": 15,
+      "🍉": 23,
+      "🔔": 38,
+      "⭐": 62,
+      "7️⃣": 116
+    };
+    const scatter = "🎁";          // bonus symbol: pays nothing itself, but triggers free spins
+    const freeSpinsAward = 10;     // how many free spins the bonus gives
+    const bonusMultiplier = 3;     // during free spins every win is multiplied by this
+    const pairMultiplier = 1;      // two matching (first two reels): the bet is returned
+    const bigWinMultiple = 30;     // a win of 30x the bet or more is a "big win" (confetti + fanfare)
+    const symbols = Object.keys(payouts).concat(scatter);
+    const bets = [5, 10, 20, 50, 100];
+    let betIndex = 1;
+
+    // ===== Saving in the browser (safe: the game works even if the browser blocks saving) =====
+    function loadNumber(key, fallback) {
+      try {
+        return Number(localStorage.getItem(key)) || fallback;
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    let balance = loadNumber("balance", 1000);
+    let spins = loadNumber("spins", 0);
+    let wins = loadNumber("wins", 0);
+    let freeSpins = loadNumber("freeSpins", 0);
+    let freeBet = loadNumber("freeBet", 0);
+    let bonusWin = loadNumber("bonusWin", 0);
+    if (freeBet <= 0) freeSpins = 0;
+    let spinning = false;
+    let autoTimer = null;
+
+    let soundOn = true;
+    try {
+      soundOn = localStorage.getItem("sound") !== "off";
+    } catch (e) {
+      soundOn = true;
+    }
+
+    function saveStats() {
+      try {
+        localStorage.setItem("balance", balance);
+        localStorage.setItem("spins", spins);
+        localStorage.setItem("wins", wins);
+        localStorage.setItem("freeSpins", freeSpins);
+        localStorage.setItem("freeBet", freeBet);
+        localStorage.setItem("bonusWin", bonusWin);
+      } catch (e) {
+        // If the browser blocks saving, the game still works
+      }
+    }
+
+    // ===== Game math =====
+    function randomSymbol() {
+      const index = Math.floor(Math.random() * symbols.length);
+      return symbols[index];
+    }
+
+    function getMultiplier(a, b, c) {
+      if (a === b && b === c) {
+        if (a === scatter) return 0;
+        return payouts[a];
+      }
+      if (a === b && a !== scatter) return pairMultiplier;
+      return 0;
+    }
+
+    // One "roll": the only place where symbols are drawn. The game and the simulation both use it.
+    function rollSpin() {
+      const s = [randomSymbol(), randomSymbol(), randomSymbol()];
+      return {
+        symbols: s,
+        multiplier: getMultiplier(s[0], s[1], s[2]),
+        scatters: s.filter(function (x) { return x === scatter; }).length
+      };
+    }
+
+    // Exact theoretical RTP: we go through ALL possible combinations (7 × 7 × 7 = 343).
+    function theoreticalRTP() {
+      let line = 0;
+      let triggers = 0;
+      let total = 0;
+      symbols.forEach(function (a) {
+        symbols.forEach(function (b) {
+          symbols.forEach(function (c) {
+            total = total + 1;
+            line = line + getMultiplier(a, b, c);
+            if (a === scatter && b === scatter && c === scatter) triggers = triggers + 1;
+          });
+        });
+      });
+      const lineRtp = line / total;
+      const bonusRtp = (triggers / total) * freeSpinsAward * bonusMultiplier * lineRtp;
+      return (lineRtp + bonusRtp) * 100;
+    }
+
+    // ===== Sounds (generated by code, no audio files needed) =====
+    let audioCtx = null;
+
+    function getAudio() {
+      if (!soundOn) return null;
+      try {
+        if (!audioCtx) {
+          const AudioClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioClass) return null;
+          audioCtx = new AudioClass();
+        }
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        return audioCtx;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // One note: frequency (Hz), delay in seconds, duration, wave type, volume
+    function tone(freq, start, duration, type, volume) {
+      const audio = getAudio();
+      if (!audio) return;
+      try {
+        const t0 = audio.currentTime + start;
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.type = type || "sine";
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(volume || 0.15, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+        osc.connect(gain);
+        gain.connect(audio.destination);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.05);
+      } catch (e) {
+        // Sound must never break the game
+      }
+    }
+
+    // A melody: a list of notes, one after another
+    function playNotes(freqs, step, type, volume, offset) {
+      freqs.forEach(function (f, i) {
+        tone(f, (offset || 0) + i * step, step * 1.6, type, volume);
+      });
+    }
+
+    function sfxSpinStart() { playNotes([220, 294, 392], 0.06, "square", 0.05); }
+    function sfxTick() { tone(150, 0, 0.03, "triangle", 0.04); }
+    function sfxReelStop() { tone(110, 0, 0.12, "triangle", 0.2); }
+
+    function sfxWin(level) {
+      if (level === 1) {
+        playNotes([523, 659], 0.1, "triangle", 0.18);
+      } else if (level === 2) {
+        playNotes([440, 554, 659, 880], 0.1, "triangle", 0.2);
+      } else {
+        playNotes([523, 659, 784, 1047, 784, 1047, 1319, 1568], 0.11, "triangle", 0.22);
+      }
+    }
+
+    function sfxBonusStart() {
+      playNotes([392, 494, 587, 784, 988, 1175, 1568], 0.09, "sine", 0.2);
+      tone(196, 0, 0.8, "sawtooth", 0.05);
+    }
+
+    function sfxBonusEnd(offset) { playNotes([784, 659, 523, 392], 0.14, "sine", 0.18, offset); }
+
+    function updateSoundButton() {
+      document.getElementById("soundBtn").textContent = t(soundOn ? "soundOn" : "soundOff");
+    }
+
+    function toggleSound() {
+      soundOn = !soundOn;
+      try {
+        localStorage.setItem("sound", soundOn ? "on" : "off");
+      } catch (e) {
+        // fine
+      }
+      updateSoundButton();
+      if (soundOn) sfxReelStop();   // a short sound so you can hear that sound is on
+    }
+
+    // ===== Visual effects =====
+    function restartAnimation(element, className) {
+      element.classList.remove(className);
+      void element.offsetWidth;     // makes the browser "forget" the old animation
+      element.classList.add(className);
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll(".reel").forEach(function (reel) {
+        reel.classList.remove("win");
+        reel.classList.remove("scatter-hit");
+      });
+    }
+
+    // Which reels won: three of a kind = all, a pair = the first two
+    function winningReels(sym, multiplier) {
+      if (multiplier === 0) return [];
+      if (sym[0] === sym[1] && sym[1] === sym[2]) return [0, 1, 2];
+      return [0, 1];
+    }
+
+    // Confetti is decoration only. Math.random here has no effect on the game.
+    function confetti(count) {
+      const box = document.getElementById("confetti");
+      const pieces = ["🎉", "✨", "⭐", "💰", "🪙"];
+      for (let i = 0; i < count; i++) {
+        const el = document.createElement("span");
+        el.className = "confetti-piece";
+        el.textContent = pieces[Math.floor(Math.random() * pieces.length)];
+        el.style.left = Math.floor(Math.random() * 100) + "vw";
+        el.style.animationDelay = (Math.random() * 0.6).toFixed(2) + "s";
+        el.style.fontSize = (18 + Math.floor(Math.random() * 18)) + "px";
+        box.appendChild(el);
+        setTimeout(function () {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }, 3000);
+      }
+    }
+
+    // ===== Screen =====
+    function showStats() {
+      document.getElementById("balance").textContent = balance;
+      document.getElementById("spins").textContent = spins;
+      document.getElementById("wins").textContent = wins;
+      document.getElementById("bet").textContent = freeSpins > 0 ? freeBet : bets[betIndex];
+      document.getElementById("spinBtn").textContent = t(freeSpins > 0 ? "freeSpin" : "spin");
+      document.getElementById("freeInfo").textContent = t("freeInfo", { n: freeSpins, win: bonusWin });
+      document.getElementById("machine").classList.toggle("bonus", freeSpins > 0);
+    }
+
+    function renderPaytable() {
+      const keys = Object.keys(payouts);
+      const rows = [];
+      for (let i = 0; i < keys.length; i += 3) {
+        rows.push(keys.slice(i, i + 3).map(function (s) {
+          return s + s + s + " ×" + payouts[s];
+        }).join("   "));
+      }
+      document.getElementById("paytable").textContent =
+        t("paytableTitle") + "\n" + rows.join("\n") +
+        "\n" + t("paytablePair") +
+        "\n" + t("paytableBonus", { symbols: scatter + scatter + scatter, n: freeSpinsAward, m: bonusMultiplier }) +
+        "\n" + t("paytableRtp", { rtp: theoreticalRTP().toFixed(2) });
+    }
+
+    function changeBet(step) {
+      if (spinning || freeSpins > 0) return;
+      betIndex = betIndex + step;
+      if (betIndex < 0) betIndex = 0;
+      if (betIndex > bets.length - 1) betIndex = bets.length - 1;
+      showStats();
+    }
+
+    // While the reels spin, all buttons are disabled except the sound button
+    function setButtonsDisabled(value) {
+      document.querySelectorAll("button").forEach(function (btn) {
+        if (btn.id === "soundBtn") return;
+        btn.disabled = value;
+      });
+    }
+
+    // ===== Spinning =====
+    function spin() {
+      if (spinning) return;
+      clearTimeout(autoTimer);
+
+      const inBonus = freeSpins > 0;
+      const bet = inBonus ? freeBet : bets[betIndex];
+      if (!inBonus && balance < bet) {
+        document.getElementById("message").textContent = t("msgNoMoney");
+        return;
+      }
+
+      spinning = true;
+      setButtonsDisabled(true);
+      clearHighlights();
+      document.getElementById("message").textContent = "";
+      sfxSpinStart();
+
+      // The result is decided immediately, BEFORE the animation. Animation and sounds only show it.
+      const roll = rollSpin();
+      const factor = inBonus ? bonusMultiplier : 1;
+      const prize = bet * roll.multiplier * factor;
+
+      if (inBonus) {
+        freeSpins = freeSpins - 1;      // free spin: no bet is taken
+        bonusWin = bonusWin + prize;
+      } else {
+        balance = balance - bet;
+      }
+      balance = balance + prize;
+      spins = spins + 1;
+      if (roll.multiplier > 0) wins = wins + 1;
+
+      // Three 🎁 in a normal spin trigger the bonus (it cannot re-trigger during the bonus).
+      let triggered = false;
+      if (!inBonus && roll.scatters === 3) {
+        freeSpins = freeSpinsAward;
+        freeBet = bet;                  // the bonus bet is locked in
+        bonusWin = 0;
+        triggered = true;
+      }
+      const bonusEnded = inBonus && freeSpins === 0;
+      if (bonusEnded) freeBet = 0;
+      saveStats();
+
+      const reels = document.querySelectorAll(".reel");
+      reels.forEach(function (reel) { reel.classList.add("spinning"); });
+
+      const timer = setInterval(function () {
+        sfxTick();
+        reels.forEach(function (reel) {
+          if (reel.classList.contains("spinning")) {
+            reel.textContent = randomSymbol();
+          }
+        });
+      }, 80);
+
+      [600, 1000, 1400].forEach(function (delay, i) {
+        setTimeout(function () {
+          reels[i].classList.remove("spinning");
+          reels[i].textContent = roll.symbols[i];
+          sfxReelStop();
+          if (i === 2) {
+            clearInterval(timer);
+            finishSpin({
+              prize: prize,
+              multiplier: roll.multiplier,
+              winMultiple: roll.multiplier * factor,
+              symbols: roll.symbols,
+              inBonus: inBonus,
+              triggered: triggered,
+              bonusEnded: bonusEnded
+            });
+          }
+        }, delay);
+      });
+    }
+
+    function finishSpin(info) {
+      let text = t("msgTryAgain");
+      if (info.triggered) {
+        text = t("msgBonusStart", { n: freeSpinsAward, m: bonusMultiplier });
+      } else if (info.bonusEnded) {
+        text = t("msgBonusEnd", { win: bonusWin });
+      } else if (info.inBonus) {
+        text = info.prize > 0 ? t("msgFreeWin", { prize: info.prize }) : t("msgFreeNoWin");
+      } else if (info.multiplier === pairMultiplier) {
+        text = t("msgPair", { prize: info.prize });
+      } else if (info.multiplier > pairMultiplier) {
+        text = t("msgWin", { prize: info.prize });
+      }
+
+      const messageBox = document.getElementById("message");
+      messageBox.textContent = text;
+      showStats();
+
+      // Win level: 0 = nothing, 1 = pair, 2 = three of a kind, 3 = big win
+      let level = 0;
+      if (info.multiplier > 0) level = info.multiplier === pairMultiplier ? 1 : 2;
+      if (info.winMultiple >= bigWinMultiple) level = 3;
+
+      const reels = document.querySelectorAll(".reel");
+      if (level > 0) {
+        winningReels(info.symbols, info.multiplier).forEach(function (i) {
+          reels[i].classList.add("win");
+        });
+        restartAnimation(messageBox, "pulse");
+        restartAnimation(document.getElementById("balance"), "pop");
+        sfxWin(level);
+        if (level === 3) confetti(40);
+      }
+
+      if (info.triggered) {
+        info.symbols.forEach(function (s, i) {
+          if (s === scatter) reels[i].classList.add("scatter-hit");
+        });
+        restartAnimation(messageBox, "pulse");
+        sfxBonusStart();
+        confetti(30);
+      }
+
+      if (info.bonusEnded) {
+        sfxBonusEnd(level > 0 ? 0.9 : 0);
+        restartAnimation(messageBox, "pulse");
+      }
+
+      spinning = false;
+      setButtonsDisabled(false);
+
+      // Free spins play by themselves.
+      if (freeSpins > 0) {
+        autoTimer = setTimeout(function () {
+          if (freeSpins > 0) spin();
+        }, 1800);
+      }
+    }
+
+    // ===== Simulation =====
+    function simulate() {
+      const total = 100000;
+      let returned = 0;       // how much came back, counted in "bets"
+      let bonusReturned = 0;
+      let hits = 0;
+      let bonuses = 0;
+
+      for (let i = 0; i < total; i++) {
+        const roll = rollSpin();
+        returned = returned + roll.multiplier;
+        if (roll.multiplier > 0) hits = hits + 1;
+
+        if (roll.scatters === 3) {
+          bonuses = bonuses + 1;
+          for (let f = 0; f < freeSpinsAward; f++) {
+            const freeRoll = rollSpin();
+            const win = freeRoll.multiplier * bonusMultiplier;
+            returned = returned + win;
+            bonusReturned = bonusReturned + win;
+          }
+        }
+      }
+
+      const rtp = (returned / total) * 100;
+      const bonusShare = (bonusReturned / total) * 100;
+      const hitRate = (hits / total) * 100;
+      const bonusText = bonuses > 0 ? t("simBonusEvery", { n: Math.round(total / bonuses) }) : t("simBonusNone");
+
+      document.getElementById("simResult").textContent = t("simResult", {
+        rtp: rtp.toFixed(2),
+        bonusRtp: bonusShare.toFixed(2),
+        hit: hitRate.toFixed(1),
+        bonus: bonusText,
+        theory: theoreticalRTP().toFixed(2)
+      });
+    }
+
+    function resetAll() {
+      clearTimeout(autoTimer);
+      balance = 1000;
+      spins = 0;
+      wins = 0;
+      freeSpins = 0;
+      freeBet = 0;
+      bonusWin = 0;
+      saveStats();
+      showStats();
+      clearHighlights();
+      document.getElementById("message").textContent = t("msgReset");
+    }
+
+    applyLanguage();
+  </script>
+</body>
+</html>
